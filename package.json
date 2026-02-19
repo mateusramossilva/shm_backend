@@ -3,11 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "nest build",
-    "postinstall": "prisma generate --schema=./src/prisma/schema.prisma",
+    "build": "prisma generate --schema=./src/prisma/schema.prisma && nest build",
     "start": "node dist/main",
-    "start:dev": "nest start --watch",
-    "seed": "ts-node src/prisma/seed.ts"
+    "postinstall": "prisma generate --schema=./src/prisma/schema.prisma"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
