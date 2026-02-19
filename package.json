@@ -4,11 +4,10 @@
   "private": true,
   "scripts": {
     "build": "nest build",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate --schema=./src/prisma/schema.prisma",
     "start": "node dist/main",
     "start:dev": "nest start --watch",
-    "start:prod": "node dist/main",
-    "seed": "ts-node src/prisma/seed.ts"
+    "start:prod": "node dist/main"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
