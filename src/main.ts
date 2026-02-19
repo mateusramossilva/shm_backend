@@ -13,7 +13,6 @@ async function bootstrap() {
   // 2. O Fly.io exige que o host seja '0.0.0.0' e injeta a porta automaticamente
   const port = process.env.PORT || 3002;
   await app.listen(port, '0.0.0.0');
-
-  console.log(`Servidor rodando na porta: ${port}`);
+  console.log(`🚀 BACKEND RODANDO NA PORTA: ${port}`);
 }
 bootstrap();
