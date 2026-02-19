@@ -1,8 +1,7 @@
 export const OMIE_CONFIG = {
-    // --- AMBIENTE: TESTE (Conta George) ---
-    // Quando for para produção, basta trocar estes dois valores aqui!
-    APP_KEY: '7206168793824',
-    APP_SECRET: '898d9360e3410999f6a25427bafb7d5d',
+    // Agora ele tenta ler do Railway/Computador, se não achar, usa o valor padrão
+    APP_KEY: process.env.APP_KEY || '2426459240205',
+    APP_SECRET: process.env.APP_SECRET || 'b354e6d4d43e7e6b779171b5691f9aa9',
 
     // Configuração base da API
     BASE_URL: 'https://app.omie.com.br/api/v1'
