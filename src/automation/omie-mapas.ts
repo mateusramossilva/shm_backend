@@ -1,7 +1,7 @@
-// --- MAPAS DAS CONTAS CORRENTES (ATUALIZADO) ---
-
+// ==========================================
+// 1. MAPA DAS CONTAS CORRENTES (BANCOS)
+// ==========================================
 export const MAPA_BANCOS: Record<string, number> = {
-    // Nomes que vêm do Excel/Sistema -> ID Real na Omie (nCodCC)
     'BANCO DO BRASIL': 1799886099,
     'CAIXINHA': 1794424427,
     'POUPANÇA B.B': 1799887187,
@@ -11,8 +11,19 @@ export const MAPA_BANCOS: Record<string, number> = {
     'OMIE.CASH': 2114507949
 };
 
+/**
+ * Busca o ID do banco. Se não achar, usa o BANCO DO BRASIL como padrão.
+ */
+export function obterIdBanco(nome: string): number {
+    const busca = String(nome || '').toUpperCase().trim();
+    return MAPA_BANCOS[busca] || 1799886099;
+}
+
+// ==========================================
+// 2. MAPA DE CATEGORIAS (FINANCEIRO OMIE)
+// ==========================================
 export const MAPA_CATEGORIAS: Record<string, string> = {
-    // === CATEGORIAS FINANCEIRAS REAIS DA OMIE ===
+    // Categorias reais mapeadas
     '200220- PRESTAÇÃO DE SERVIÇOS MÉDICOS': '2.03.94',
     'PRESTAÇÃO DE SERVIÇOS MÉDICOS': '2.03.94',
     'SERVIÇOS MÉDICOS': '2.03.94',
@@ -25,13 +36,19 @@ export const MAPA_CATEGORIAS: Record<string, string> = {
     '200801 - PROSPECÇÃO DE CLIENTES': '2.11.99',
     '200802-ATESTADO DE CAPACIDADE TÉCNICA': '2.11.98',
     'COMPRA DE SERVIÇOS': '2.01.04',
+
 };
 
 /**
- * Busca a Categoria. Se não achar, usa 'Prestação de Serviços Médicos' como padrão.
+ * Busca a Categoria. Se não achar ou estiver 'CODIGO_AQUI', usa 'Prestação de Serviços Médicos' (2.03.94)
  */
 export function obterCodigoCategoria(nome: string): string {
     const busca = String(nome || '').toUpperCase().trim();
-    // Fallback atualizado para o código real: 2.03.94
-    return MAPA_CATEGORIAS[busca] || '2.03.94';
+    const codigoEncontrado = MAPA_CATEGORIAS[busca];
+
+    if (codigoEncontrado && codigoEncontrado !== 'CODIGO_AQUI') {
+        return codigoEncontrado;
+    }
+
+    return '2.03.94';
 }
