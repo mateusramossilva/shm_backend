@@ -1,12 +1,14 @@
-// --- MAPAS DA CONTA DE TESTE (GEORGE) ---
+// --- MAPAS DAS CONTAS CORRENTES (ATUALIZADO) ---
 
 export const MAPA_BANCOS: Record<string, number> = {
-    // Nomes que vêm do Excel -> ID Real na Omie
-    'BANCO DO BRASIL': 6732801542,
-    'SANTANDER': 6732375397,
-    'BRADESCO': 6732375398,
-    'CAIXINHA': 6732375396,
-    'OMIE.CASH': 6732375400
+    // Nomes que vêm do Excel/Sistema -> ID Real na Omie (nCodCC)
+    'BANCO DO BRASIL': 1799886099,
+    'CAIXINHA': 1794424427,
+    'POUPANÇA B.B': 1799887187,
+    'BANCO INTER': 1799887547,
+    'BANCO DO BRASIL APLICACAO': 1893198921,
+    'XP INVESTIMENTOS': 2105517550,
+    'OMIE.CASH': 2114507949
 };
 
 export const MAPA_CATEGORIAS: Record<string, string> = {
@@ -22,7 +24,8 @@ export const MAPA_CATEGORIAS: Record<string, string> = {
  */
 export function obterIdBanco(nome: string): number {
     const busca = String(nome || '').toUpperCase().trim();
-    return MAPA_BANCOS[busca] || 6732801542;
+    // Fallback atualizado para o ID correto do Banco do Brasil: 1799886099
+    return MAPA_BANCOS[busca] || 1799886099;
 }
 
 /**
