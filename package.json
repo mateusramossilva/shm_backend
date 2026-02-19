@@ -7,7 +7,7 @@
     "postinstall": "prisma generate --schema=./src/prisma/schema.prisma",
     "start": "node dist/main",
     "start:dev": "nest start --watch",
-    "start:prod": "node dist/main"
+    "seed": "ts-node src/prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
