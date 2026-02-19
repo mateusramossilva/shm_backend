@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "build": "prisma generate --schema=./src/prisma/schema.prisma && nest build",
-    "postinstall": "prisma generate --schema=./src/prisma/schema.prisma",
-    "start": "node dist/main"
+    "start": "node dist/main",
+    "postinstall": "prisma generate --schema=./src/prisma/schema.prisma"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
