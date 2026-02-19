@@ -1,8 +1,9 @@
 import { defineConfig } from '@prisma/config';
 
 export default defineConfig({
+  engine: 'classic', // Resolve o erro de build (TypeScript)
   datasource: {
-    // Note o 5433 no final do localhost
-    url: 'postgresql://postgres:docker@localhost:5433/hsm_db',
+    // Tenta usar a URL do Railway. Se não existir (no seu PC), usa o localhost
+    url: process.env.DATABASE_URL || 'postgresql://postgres:docker@localhost:5433/hsm_db',
   },
 });
