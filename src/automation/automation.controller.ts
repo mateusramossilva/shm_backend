@@ -8,7 +8,7 @@ import { Response } from 'express';
 import { OmieProcessService } from './omie-process.service';
 import { OmieService } from './omie.service';
 import { PrismaService } from '../prisma/prisma.service';
-// Importando os três mapas: Banco, Categoria e Projeto
+// Importando mapas
 import { obterIdBanco, obterCodigoCategoria, obterIdProjeto } from './omie-mapas';
 
 @Controller('automation')
@@ -19,7 +19,7 @@ export class AutomationController {
         private readonly prisma: PrismaService
     ) {}
 
-    // 1. GERAÇÃO DO EXCEL (MOTOR i += 2)
+    // 1. GERAÇÃO DO EXCEL
     @Post('processar')
     @UseInterceptors(FileFieldsInterceptor([{ name: 'omie', maxCount: 1 }, { name: 'doctor', maxCount: 1 }]))
     async processar(@UploadedFiles() files, @Body() body, @Res() res: Response) {
@@ -39,7 +39,7 @@ export class AutomationController {
         }
     }
 
-    // 2. PREPARAÇÃO PARA API OMIE (LÓGICA DE DESENTORTAR COLUNAS + PROJETOS)
+    // 2. PREPARAÇÃO PARA API OMIE
     @Post('preparar-dados')
     async prepararDados(@Body() body: { contas: any[] }) {
         const todosClientes = await this.omieService.listarTodosClientes();
@@ -52,9 +52,15 @@ export class AutomationController {
 
         const prontos = [], ignorados = [];
 
-        // Loop assíncrono para permitir a criação de projetos na Omie em tempo real
+        // Substituído forEach por loop for tradicional para suportar await, caso a Omie crie projetos
         for (let index = 0; index < body.contas.length; index++) {
             const conta = body.contas[index];
+
+            // ====================================================================
+            // 🔎 RAIO-X PARA DESCOBRIR O QUE O SITE ESTÁ ENVIANDO
+            // Vá no painel do Railway e veja o que vai imprimir nesta linha:
+            // ====================================================================
+            console.log(`🔎 [DADOS COMPLETOS ENVIADOS PELO SITE PARA O MÉDICO]:`, conta);
 
             let cpf = String(conta.cod_cliente || '').replace(/\D/g, '');
             if (cpf.length > 0 && cpf.length < 11) cpf = cpf.padStart(11, '0');
@@ -62,51 +68,44 @@ export class AutomationController {
             const idOmie = mapaClientes.get(cpf);
 
             if (!idOmie) {
-                ignorados.push({ nome: "Médico não encontrado na Omie", cpf: cpf });
+                ignorados.push({ nome: conta.medico_nome, cpf: cpf });
                 continue;
             }
 
-            // ====================================================================
-            // 🚨 AJUSTE DE COLUNAS INVERTIDAS DO SITE 🚨
-            // Conforme o LOG:
-            // conta.medico_nome -> Contém o texto da CATEGORIA
-            // conta.categoria   -> Contém o texto do PROJETO
-            // ====================================================================
+            // 1. Busca o ID do Projeto (Coluna H). Se o site não enviar como "projeto", ele ficará vazio
+            const nomeDoProjetoNoExcel = String(conta.projeto || '').trim();
 
-            const textoCategoriaExcel = String(conta.medico_nome || '').trim();
-            const textoProjetoExcel = String(conta.categoria || '').trim();
+            // 2. Tenta achar no mapa interno (omie-mapas.ts)
+            let idProjeto = obterIdProjeto(nomeDoProjetoNoExcel);
 
-            // 1. Busca IDs usando os mapas e a lógica inteligente
-            const codigoCategoriaFinal = obterCodigoCategoria(textoCategoriaExcel);
-            let idProjetoFinal = obterIdProjeto(textoProjetoExcel);
-
-            // 2. Se o projeto não existe no mapa e o nome não for vazio, cria na Omie agora!
-            if (idProjetoFinal === 0 && textoProjetoExcel !== '') {
-                console.log(`[AUTOMAÇÃO] Criando novo projeto na Omie: ${textoProjetoExcel}`);
-                idProjetoFinal = await this.omieService.incluirProjeto(textoProjetoExcel);
+            // 3. Se não achou (retornou 0) e não estiver em branco, aciona a Omie para CRIAR o projeto na hora
+            if (idProjeto === 0 && nomeDoProjetoNoExcel !== '') {
+                console.log(`⏳ Criando projeto inexistente na Omie: '${nomeDoProjetoNoExcel}'...`);
+                idProjeto = await this.omieService.incluirProjeto(nomeDoProjetoNoExcel);
+                console.log(`✅ Novo projeto criado na Omie! ID: ${idProjeto}`);
             }
 
-            // 3. Monta o payload definitivo para a Omie
+            // 4. Monta o payload conforme JSON oficial da Omie
             const payload: any = {
                 codigo_cliente_fornecedor: idOmie,
                 data_vencimento: this.formatarData(conta.data_vencimento),
                 valor_documento: Number(conta.valor),
-                codigo_categoria: codigoCategoriaFinal, // Valor desentortado
+                codigo_categoria: obterCodigoCategoria(conta.categoria),
                 id_conta_corrente: obterIdBanco(conta.banco),
-                observacao: "", // Limpo conforme solicitado
+                observacao: "",
                 data_previsao: this.formatarData(conta.data_vencimento),
                 codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
             };
 
-            // Injeta o código do projeto na raiz (Tag oficial confirmada pelo seu JSON)
-            if (idProjetoFinal > 0) {
-                payload.codigo_projeto = idProjetoFinal;
+            // INJEÇÃO DA TAG OFICIAL
+            // Apenas injeta se for um número válido maior que 0
+            if (idProjeto && idProjeto > 0) {
+                payload.codigo_projeto = Number(idProjeto);
             }
 
             prontos.push({
                 omiePayload: payload,
-                // Na visualização do seu site, mostramos o projeto para você saber qual linha é
-                medico_nome: `Projeto: ${textoProjetoExcel}`,
+                medico_nome: conta.medico_nome,
                 cpf: cpf
             });
         }
@@ -136,17 +135,11 @@ export class AutomationController {
     }
 
     @Post('companies')
-    async criarEmpresa(@Body() data: any) {
-        return await this.prisma.company.create({ data: data as any });
-    }
+    async criarEmpresa(@Body() data: any) { return await this.prisma.company.create({ data: data as any }); }
 
     @Delete('companies/:name')
     async deletarEmpresa(@Param('name') name: string) {
-        try {
-            await this.prisma.company.deleteMany({
-                where: { OR: [{ name: name } as any, { nome: name } as any] } as any
-            });
-        } catch (e) {}
+        try { await this.prisma.company.deleteMany({ where: { OR: [{ name: name } as any, { nome: name } as any] } as any }); } catch (e) {}
         return { ok: true };
     }
 
@@ -154,21 +147,14 @@ export class AutomationController {
     async listar(@Param('tipo') tipo: string, @Query('empresa') empresa: string) {
         if (tipo === 'escalas') {
             if (!empresa) return [];
-            return await this.prisma.escalaMapping.findMany({
-                where: { empresa: empresa } as any,
-                orderBy: { origem: 'asc' }
-            });
+            return await this.prisma.escalaMapping.findMany({ where: { empresa: empresa } as any, orderBy: { origem: 'asc' } });
         }
-        if (tipo === 'vinculos') {
-            return await this.prisma.vinculoMapping.findMany({ orderBy: { sigla: 'asc' } });
-        }
+        if (tipo === 'vinculos') return await this.prisma.vinculoMapping.findMany({ orderBy: { sigla: 'asc' } });
     }
 
     @Post(':tipo')
     async criar(@Param('tipo') tipo: string, @Body() data: any) {
-        if (tipo === 'escalas') {
-            return await this.prisma.escalaMapping.create({ data: { ...data, ativa: true } });
-        }
+        if (tipo === 'escalas') return await this.prisma.escalaMapping.create({ data: { ...data, ativa: true } });
         if (tipo === 'vinculos') {
             const { empresa, ...dataClean } = data;
             return await this.prisma.vinculoMapping.create({ data: { ...dataClean, ativa: true } });
