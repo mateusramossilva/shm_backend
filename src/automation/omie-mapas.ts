@@ -16,7 +16,6 @@ export function obterIdBanco(nome: string): number {
     return MAPA_BANCOS[busca] || 1799886099;
 }
 
-
 // ==========================================
 // 2. MAPA DE CATEGORIAS (FINANCEIRO OMIE)
 // ==========================================
@@ -45,7 +44,6 @@ export function obterCodigoCategoria(nome: string): string {
 
     return '2.03.94';
 }
-
 
 // ==========================================
 // 3. MAPA DE PROJETOS (CIDADES / CONTRATOS - COLUNA H)
@@ -178,7 +176,7 @@ export const MAPA_PROJETOS: Record<string, number> = {
     '2085-SÃO BENTO DO SAPUCAÍ-ESPECIALIDADES': 2362056440,
     '2086-SÃO JOSÉ DOS CAMPOS-CREDENCIAMENTO 01-2025': 2362056464,
 
-    // Apelidos
+    // Apelidos para correções do Excel
     '2086-S.1J.CAMPOS-CREDENCIAMENTO 01-2025': 2362056464,
     '2026-LAGOINHA-ESPECIALIDADES': 2017701306,
     '2028-MONTEIRO LOBATO-PA': 2182780979,
@@ -197,14 +195,11 @@ export const MAPA_PROJETOS: Record<string, number> = {
 export function obterIdProjeto(nome: string): number {
     if (!nome) return 0;
 
-    // Limpa o que vem do Excel: tira todos os espaços, traços e pontuações
     const busca = String(nome).toLowerCase().replace(/[^a-z0-9]/g, '');
 
     for (const [key, value] of Object.entries(MAPA_PROJETOS)) {
-        // Limpa as chaves do nosso mapa para comparar de igual para igual
         const keyClean = key.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-        // Se bater perfeitamente ou um contiver o outro, achou o ID!
         if (busca === keyClean || keyClean.includes(busca) || busca.includes(keyClean)) {
             return value;
         }

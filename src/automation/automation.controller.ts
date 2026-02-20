@@ -8,7 +8,7 @@ import { Response } from 'express';
 import { OmieProcessService } from './omie-process.service';
 import { OmieService } from './omie.service';
 import { PrismaService } from '../prisma/prisma.service';
-// Importando os três mapas: Banco, Categoria e Projeto com a pesquisa inteligente
+// Importando mapas
 import { obterIdBanco, obterCodigoCategoria, obterIdProjeto } from './omie-mapas';
 
 @Controller('automation')
@@ -18,10 +18,6 @@ export class AutomationController {
         private readonly omieService: OmieService,
         private readonly prisma: PrismaService
     ) {}
-
-    // ==================================================================
-    // ⚠️ ÁREA 1: MOTOR DE PROCESSAMENTO (AUTOMATION CORE)
-    // ==================================================================
 
     // 1. GERAÇÃO DO EXCEL
     @Post('processar')
@@ -43,7 +39,7 @@ export class AutomationController {
         }
     }
 
-    // 2. PREPARAÇÃO PARA API OMIE
+    // 2. PREPARAÇÃO PARA API OMIE (AGORA COM CRIAÇÃO AUTOMÁTICA DE PROJETOS)
     @Post('preparar-dados')
     async prepararDados(@Body() body: { contas: any[] }) {
         const todosClientes = await this.omieService.listarTodosClientes();
@@ -56,7 +52,10 @@ export class AutomationController {
 
         const prontos = [], ignorados = [];
 
-        body.contas.forEach((conta, index) => {
+        // Substituído forEach por loop for tradicional para usar await (assíncrono)
+        for (let index = 0; index < body.contas.length; index++) {
+            const conta = body.contas[index];
+
             let cpf = String(conta.cod_cliente || '').replace(/\D/g, '');
             if (cpf.length > 0 && cpf.length < 11) cpf = cpf.padStart(11, '0');
 
@@ -64,32 +63,35 @@ export class AutomationController {
 
             if (!idOmie) {
                 ignorados.push({ nome: conta.medico_nome, cpf: cpf });
-                return;
+                continue; // Passa pro próximo da lista
             }
 
-            // =======================================================
-            // LÓGICA DO PROJETO COM DEBUG PARA O RAILWAY
-            // =======================================================
             const nomeDoProjetoNoExcel = conta.projeto || '';
-            const idProjeto = obterIdProjeto(nomeDoProjetoNoExcel);
 
-            // LOG DE DIAGNÓSTICO (Vá na tela preta do Railway depois de rodar para ver se achou o ID)
-            console.log(`🩺 Médico: ${conta.medico_nome} | 📂 Excel: '${nomeDoProjetoNoExcel}' | 🎯 ID Omie: ${idProjeto}`);
+            // 1º Passo: Tenta achar no nosso mapa interno rápido
+            let idProjeto = obterIdProjeto(nomeDoProjetoNoExcel);
 
-            // Monta o payload exato da API Omie
+            // 2º Passo: Se não achou e não estiver em branco, MANDA A OMIE CRIAR NA HORA!
+            if (idProjeto === 0 && nomeDoProjetoNoExcel.trim() !== '') {
+                console.log(`[CRIANDO NOVO PROJETO]: '${nomeDoProjetoNoExcel}' não existe. Criando na Omie agora...`);
+                idProjeto = await this.omieService.incluirProjeto(nomeDoProjetoNoExcel);
+                console.log(`[SUCESSO]: Projeto '${nomeDoProjetoNoExcel}' criado com ID: ${idProjeto}`);
+            }
+
+            // Monta o payload exato
             const payload: any = {
                 codigo_cliente_fornecedor: idOmie,
                 data_vencimento: this.formatarData(conta.data_vencimento),
                 valor_documento: Number(conta.valor),
                 codigo_categoria: obterCodigoCategoria(conta.categoria),
                 id_conta_corrente: obterIdBanco(conta.banco),
-                observacao: "", // Em branco, conforme solicitado!
+                observacao: "",
                 data_previsao: this.formatarData(conta.data_vencimento),
                 codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
             };
 
-            // Se ele não for 0 (vazio), anexa a tag exata da raiz
-            if (idProjeto !== 0) {
+            // Injeta o projeto na raiz
+            if (idProjeto && idProjeto !== 0) {
                 payload.codigo_projeto = idProjeto;
             }
 
@@ -98,7 +100,7 @@ export class AutomationController {
                 medico_nome: conta.medico_nome,
                 cpf: cpf
             });
-        });
+        }
 
         return { prontos, ignorados };
     }
