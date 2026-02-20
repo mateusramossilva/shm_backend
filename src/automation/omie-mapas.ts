@@ -11,9 +11,6 @@ export const MAPA_BANCOS: Record<string, number> = {
     'OMIE.CASH': 2114507949
 };
 
-/**
- * Busca o ID do banco. Se não achar, usa o BANCO DO BRASIL como padrão.
- */
 export function obterIdBanco(nome: string): number {
     const busca = String(nome || '').toUpperCase().trim();
     return MAPA_BANCOS[busca] || 1799886099;
@@ -24,7 +21,6 @@ export function obterIdBanco(nome: string): number {
 // 2. MAPA DE CATEGORIAS (FINANCEIRO OMIE)
 // ==========================================
 export const MAPA_CATEGORIAS: Record<string, string> = {
-    // Categorias reais mapeadas
     '200220- PRESTAÇÃO DE SERVIÇOS MÉDICOS': '2.03.94',
     'PRESTAÇÃO DE SERVIÇOS MÉDICOS': '2.03.94',
     'SERVIÇOS MÉDICOS': '2.03.94',
@@ -37,14 +33,8 @@ export const MAPA_CATEGORIAS: Record<string, string> = {
     '200801 - PROSPECÇÃO DE CLIENTES': '2.11.99',
     '200802-ATESTADO DE CAPACIDADE TÉCNICA': '2.11.98',
     'COMPRA DE SERVIÇOS': '2.01.04',
-
-    // Contratos que usarão o fallback (Prestação de Serviços Médicos)
-
 };
 
-/**
- * Busca a Categoria. Se não achar ou estiver 'CODIGO_AQUI', usa 'Prestação de Serviços Médicos' (2.03.94)
- */
 export function obterCodigoCategoria(nome: string): string {
     const busca = String(nome || '').toUpperCase().trim();
     const codigoEncontrado = MAPA_CATEGORIAS[busca];
@@ -186,14 +176,39 @@ export const MAPA_PROJETOS: Record<string, number> = {
     '2083-CISMETRO-PARAIBUNA': 2362020780,
     '2084-CEJAM ORTOPEDIA': 2362056424,
     '2085-SÃO BENTO DO SAPUCAÍ-ESPECIALIDADES': 2362056440,
-    '2086-SÃO JOSÉ DOS CAMPOS-CREDENCIAMENTO 01-2025': 2362056464
+    '2086-SÃO JOSÉ DOS CAMPOS-CREDENCIAMENTO 01-2025': 2362056464,
+
+    // Apelidos
+    '2086-S.1J.CAMPOS-CREDENCIAMENTO 01-2025': 2362056464,
+    '2026-LAGOINHA-ESPECIALIDADES': 2017701306,
+    '2028-MONTEIRO LOBATO-PA': 2182780979,
+    '2025-SAP-CARDIOLOGISTA': 2204403527,
+    '2020-SJC-CREDENCIAMETO 02/2023': 1826268063,
+    'SHM - JACAREÍ CS': 1893138960,
+    'SHM - SAP ESPECIALIDADES': 1930901934,
+    'VITALLIS - SAP NEUROPED': 1994898492,
+    'VITALLIS - SARAPUÍ PA': 1994898492
 };
 
 /**
- * Busca o ID do Projeto na Omie. Retorna null se não encontrar.
+ * Busca o ID do Projeto na Omie com "Inteligência" (Fuzzy Search):
+ * Ignora espaços, traços e diferenças minúsculas/maiúsculas.
  */
-export function obterIdProjeto(nome: string): number | null {
-    if (!nome) return null;
-    const busca = String(nome).toUpperCase().trim();
-    return MAPA_PROJETOS[busca] || null;
+export function obterIdProjeto(nome: string): number {
+    if (!nome) return 0;
+
+    // Limpa o que vem do Excel: tira todos os espaços, traços e pontuações
+    const busca = String(nome).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    for (const [key, value] of Object.entries(MAPA_PROJETOS)) {
+        // Limpa as chaves do nosso mapa para comparar de igual para igual
+        const keyClean = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        // Se bater perfeitamente ou um contiver o outro, achou o ID!
+        if (busca === keyClean || keyClean.includes(busca) || busca.includes(keyClean)) {
+            return value;
+        }
+    }
+
+    return 0; // Retorna 0 (vazio) só se for impossível achar
 }

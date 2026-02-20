@@ -8,7 +8,7 @@ import { Response } from 'express';
 import { OmieProcessService } from './omie-process.service';
 import { OmieService } from './omie.service';
 import { PrismaService } from '../prisma/prisma.service';
-// Importando os três mapas: Banco, Categoria e Projeto
+// Importando os três mapas: Banco, Categoria e Projeto com a pesquisa inteligente
 import { obterIdBanco, obterCodigoCategoria, obterIdProjeto } from './omie-mapas';
 
 @Controller('automation')
@@ -67,34 +67,30 @@ export class AutomationController {
                 return;
             }
 
-            // 1. Busca o ID do Projeto (Coluna H)
-            const idProjeto = obterIdProjeto(conta.projeto);
+            // =======================================================
+            // LÓGICA DO PROJETO COM DEBUG PARA O RAILWAY
+            // =======================================================
+            const nomeDoProjetoNoExcel = conta.projeto || '';
+            const idProjeto = obterIdProjeto(nomeDoProjetoNoExcel);
 
-            // 2. Monta o cabeçalho base do Título na Omie
+            // LOG DE DIAGNÓSTICO (Vá na tela preta do Railway depois de rodar para ver se achou o ID)
+            console.log(`🩺 Médico: ${conta.medico_nome} | 📂 Excel: '${nomeDoProjetoNoExcel}' | 🎯 ID Omie: ${idProjeto}`);
+
+            // Monta o payload exato da API Omie
             const payload: any = {
                 codigo_cliente_fornecedor: idOmie,
                 data_vencimento: this.formatarData(conta.data_vencimento),
                 valor_documento: Number(conta.valor),
                 codigo_categoria: obterCodigoCategoria(conta.categoria),
                 id_conta_corrente: obterIdBanco(conta.banco),
-                observacao: "",
+                observacao: "", // Em branco, conforme solicitado!
                 data_previsao: this.formatarData(conta.data_vencimento),
                 codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
             };
 
-            // 3. Força o preenchimento do Projeto para a interface da Omie
-            if (idProjeto && idProjeto !== 0) {
-                // Tenta gravar diretamente no cabeçalho
+            // Se ele não for 0 (vazio), anexa a tag exata da raiz
+            if (idProjeto !== 0) {
                 payload.codigo_projeto = idProjeto;
-
-                // Força o rateio estrutural para acionar a "lupa" e o relacionamento no banco da Omie
-                payload.distribuicao = [
-                    {
-                        cCodCategoria: obterCodigoCategoria(conta.categoria),
-                        nValrPercentual: 100,
-                        nCodProjeto: idProjeto
-                    }
-                ];
             }
 
             prontos.push({
@@ -123,32 +119,17 @@ export class AutomationController {
     @Get('companies')
     async listarEmpresas() {
         const registered = await this.prisma.company.findMany({ orderBy: { id: 'asc' } as any });
-
-        const usedInScales = await this.prisma.escalaMapping.findMany({
-            select: { empresa: true },
-            distinct: ['empresa'] as any
-        });
-
-        const nomesUnicos = new Set([
-            ...registered.map(c => (c as any).name || (c as any).nome),
-            ...usedInScales.map(e => e.empresa).filter(Boolean)
-        ]);
-
+        const usedInScales = await this.prisma.escalaMapping.findMany({ select: { empresa: true }, distinct: ['empresa'] as any });
+        const nomesUnicos = new Set([...registered.map(c => (c as any).name || (c as any).nome), ...usedInScales.map(e => e.empresa).filter(Boolean)]);
         return Array.from(nomesUnicos).map(nome => ({ name: nome }));
     }
 
     @Post('companies')
-    async criarEmpresa(@Body() data: any) {
-        return await this.prisma.company.create({ data: data as any });
-    }
+    async criarEmpresa(@Body() data: any) { return await this.prisma.company.create({ data: data as any }); }
 
     @Delete('companies/:name')
     async deletarEmpresa(@Param('name') name: string) {
-        try {
-            await this.prisma.company.deleteMany({
-                where: { OR: [{ name: name } as any, { nome: name } as any] } as any
-            });
-        } catch (e) {}
+        try { await this.prisma.company.deleteMany({ where: { OR: [{ name: name } as any, { nome: name } as any] } as any }); } catch (e) {}
         return { ok: true };
     }
 
@@ -156,21 +137,14 @@ export class AutomationController {
     async listar(@Param('tipo') tipo: string, @Query('empresa') empresa: string) {
         if (tipo === 'escalas') {
             if (!empresa) return [];
-            return await this.prisma.escalaMapping.findMany({
-                where: { empresa: empresa } as any,
-                orderBy: { origem: 'asc' }
-            });
+            return await this.prisma.escalaMapping.findMany({ where: { empresa: empresa } as any, orderBy: { origem: 'asc' } });
         }
-        if (tipo === 'vinculos') {
-            return await this.prisma.vinculoMapping.findMany({ orderBy: { sigla: 'asc' } });
-        }
+        if (tipo === 'vinculos') return await this.prisma.vinculoMapping.findMany({ orderBy: { sigla: 'asc' } });
     }
 
     @Post(':tipo')
     async criar(@Param('tipo') tipo: string, @Body() data: any) {
-        if (tipo === 'escalas') {
-            return await this.prisma.escalaMapping.create({ data: { ...data, ativa: true } });
-        }
+        if (tipo === 'escalas') return await this.prisma.escalaMapping.create({ data: { ...data, ativa: true } });
         if (tipo === 'vinculos') {
             const { empresa, ...dataClean } = data;
             return await this.prisma.vinculoMapping.create({ data: { ...dataClean, ativa: true } });
