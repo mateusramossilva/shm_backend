@@ -8,28 +8,26 @@ import { Response } from 'express';
 import { OmieProcessService } from './omie-process.service';
 import { OmieService } from './omie.service';
 import { PrismaService } from '../prisma/prisma.service';
-// Importando os mapas originais + a nova função obterIdProjeto
+// Importando os três mapas: Banco, Categoria e Projeto
 import { obterIdBanco, obterCodigoCategoria, obterIdProjeto } from './omie-mapas';
 
 @Controller('automation')
 export class AutomationController {
     constructor(
-        // Mantendo a injeção de dependência EXATAMENTE como era
         private readonly omieProcessService: OmieProcessService,
         private readonly omieService: OmieService,
         private readonly prisma: PrismaService
     ) {}
 
     // ==================================================================
-    // ⚠️ ÁREA 1: MOTOR DE PROCESSAMENTO (AUTOMATION CORE) - RESTAURADO ⚠️
+    // ⚠️ ÁREA 1: MOTOR DE PROCESSAMENTO (AUTOMATION CORE)
     // ==================================================================
 
-    // 1. GERAÇÃO DO EXCEL (MOTOR i += 2)
+    // 1. GERAÇÃO DO EXCEL
     @Post('processar')
     @UseInterceptors(FileFieldsInterceptor([{ name: 'omie', maxCount: 1 }, { name: 'doctor', maxCount: 1 }]))
     async processar(@UploadedFiles() files, @Body() body, @Res() res: Response) {
         try {
-            // Lógica original restaurada
             const buffer = await this.omieProcessService.executarInjecao(
                 files.omie[0].buffer,
                 files.doctor[0].buffer,
@@ -69,19 +67,37 @@ export class AutomationController {
                 return;
             }
 
-            // Payload atualizado para enviar o Projeto
+            // 1. Busca o ID do Projeto (Coluna H)
+            const idProjeto = obterIdProjeto(conta.projeto);
+
+            // 2. Monta o cabeçalho base do Título na Omie
+            const payload: any = {
+                codigo_cliente_fornecedor: idOmie,
+                data_vencimento: this.formatarData(conta.data_vencimento),
+                valor_documento: Number(conta.valor),
+                codigo_categoria: obterCodigoCategoria(conta.categoria),
+                id_conta_corrente: obterIdBanco(conta.banco),
+                observacao: "", // Em branco conforme solicitado
+                data_previsao: this.formatarData(conta.data_vencimento),
+                codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
+            };
+
+            // 3. Se existir um projeto válido, injeta no array de distribuição da Omie
+            if (idProjeto !== 0) {
+                payload.distribuicao = {
+                    projetos: [
+                        {
+                            cCodProjetoInt: "", // Deixa vazio, pois já estamos usando o ID real abaixo
+                            nCodProjeto: idProjeto,
+                            nValorFixo: Number(conta.valor),
+                            nValrPercentual: 100 // 100% do valor do boleto vai para este projeto
+                        }
+                    ]
+                };
+            }
+
             prontos.push({
-                omiePayload: {
-                    codigo_cliente_fornecedor: idOmie,
-                    data_vencimento: this.formatarData(conta.data_vencimento),
-                    valor_documento: Number(conta.valor),
-                    codigo_categoria: obterCodigoCategoria(conta.categoria),
-                    codigo_projeto: obterIdProjeto(conta.projeto), // AQUI: Envia o ID do Projeto
-                    id_conta_corrente: obterIdBanco(conta.banco),
-                    observacao: `Médico: ${conta.medico_nome}`,
-                    data_previsao: this.formatarData(conta.data_vencimento),
-                    codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
-                },
+                omiePayload: payload,
                 medico_nome: conta.medico_nome,
                 cpf: cpf
             });
@@ -100,12 +116,11 @@ export class AutomationController {
     }
 
     // ==================================================================
-    // 🚀 ÁREA 2: GESTÃO DE ESCALAS/VÍNCULOS (NOVA LÓGICA POR EMPRESA)
+    // 🚀 ÁREA 2: GESTÃO DE ESCALAS/VÍNCULOS
     // ==================================================================
 
     @Get('companies')
     async listarEmpresas() {
-        // LÓGICA HÍBRIDA: Lê tabela Company + Lê nomes existentes nas escalas (SHM, VITALLIS)
         const registered = await this.prisma.company.findMany({ orderBy: { id: 'asc' } as any });
 
         const usedInScales = await this.prisma.escalaMapping.findMany({
@@ -139,9 +154,7 @@ export class AutomationController {
     @Get(':tipo')
     async listar(@Param('tipo') tipo: string, @Query('empresa') empresa: string) {
         if (tipo === 'escalas') {
-            // Se não selecionar empresa, retorna vazio (comportamento de pasta fechada)
             if (!empresa) return [];
-
             return await this.prisma.escalaMapping.findMany({
                 where: { empresa: empresa } as any,
                 orderBy: { origem: 'asc' }
@@ -185,7 +198,6 @@ export class AutomationController {
         if (tipo === 'vinculos') return await this.prisma.vinculoMapping.delete({ where: { id } });
     }
 
-    // Função auxiliar restaurada
     private formatarData(d: string) {
         if (!d || d.includes('/')) return d;
         const [ano, mes, dia] = d.split('-');
