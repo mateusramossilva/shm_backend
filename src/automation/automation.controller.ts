@@ -4,11 +4,9 @@ import {
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
-// Importando os serviços originais
 import { OmieProcessService } from './omie-process.service';
 import { OmieService } from './omie.service';
 import { PrismaService } from '../prisma/prisma.service';
-// Importando os três mapas: Banco, Categoria e Projeto
 import { obterIdBanco, obterCodigoCategoria, obterIdProjeto } from './omie-mapas';
 
 @Controller('automation')
@@ -19,11 +17,6 @@ export class AutomationController {
         private readonly prisma: PrismaService
     ) {}
 
-    // ==================================================================
-    // ⚠️ ÁREA 1: MOTOR DE PROCESSAMENTO (AUTOMATION CORE)
-    // ==================================================================
-
-    // 1. GERAÇÃO DO EXCEL
     @Post('processar')
     @UseInterceptors(FileFieldsInterceptor([{ name: 'omie', maxCount: 1 }, { name: 'doctor', maxCount: 1 }]))
     async processar(@UploadedFiles() files, @Body() body, @Res() res: Response) {
@@ -43,7 +36,6 @@ export class AutomationController {
         }
     }
 
-    // 2. PREPARAÇÃO PARA API OMIE
     @Post('preparar-dados')
     async prepararDados(@Body() body: { contas: any[] }) {
         const todosClientes = await this.omieService.listarTodosClientes();
@@ -67,25 +59,31 @@ export class AutomationController {
                 return;
             }
 
-            // 1. Busca o ID do Projeto (Coluna H)
-            const idProjeto = obterIdProjeto(conta.projeto);
+            // =======================================================
+            // LÓGICA DO PROJETO COM DEBUG PARA O RAILWAY
+            // =======================================================
+            const nomeDoProjetoNoExcel = conta.projeto || '';
+            const idProjeto = obterIdProjeto(nomeDoProjetoNoExcel);
 
-            // 2. Monta o cabeçalho base do Título na Omie
+            console.log(`[DEBUG PROJETO] Médico: ${conta.medico_nome} | Excel mandou: '${nomeDoProjetoNoExcel}' | ID Encontrado: ${idProjeto}`);
+
             const payload: any = {
                 codigo_cliente_fornecedor: idOmie,
                 data_vencimento: this.formatarData(conta.data_vencimento),
                 valor_documento: Number(conta.valor),
                 codigo_categoria: obterCodigoCategoria(conta.categoria),
                 id_conta_corrente: obterIdBanco(conta.banco),
-                observacao: "", // Em branco conforme solicitado
+                observacao: "",
                 data_previsao: this.formatarData(conta.data_vencimento),
                 codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
             };
 
-            // 3. Injeta o Projeto direto na raiz, do jeito simples que a Omie exige!
-            if (idProjeto !== 0) {
+            // SE ACHOU O PROJETO, INCLUI A TAG EXATA DA API DA OMIE
+            if (idProjeto && idProjeto !== 0) {
                 payload.codigo_projeto = idProjeto;
             }
+
+            console.log(`[DEBUG PAYLOAD OMIE]`, JSON.stringify(payload));
 
             prontos.push({
                 omiePayload: payload,
@@ -106,39 +104,20 @@ export class AutomationController {
         }
     }
 
-    // ==================================================================
-    // 🚀 ÁREA 2: GESTÃO DE ESCALAS/VÍNCULOS
-    // ==================================================================
-
     @Get('companies')
     async listarEmpresas() {
         const registered = await this.prisma.company.findMany({ orderBy: { id: 'asc' } as any });
-
-        const usedInScales = await this.prisma.escalaMapping.findMany({
-            select: { empresa: true },
-            distinct: ['empresa'] as any
-        });
-
-        const nomesUnicos = new Set([
-            ...registered.map(c => (c as any).name || (c as any).nome),
-            ...usedInScales.map(e => e.empresa).filter(Boolean)
-        ]);
-
+        const usedInScales = await this.prisma.escalaMapping.findMany({ select: { empresa: true }, distinct: ['empresa'] as any });
+        const nomesUnicos = new Set([...registered.map(c => (c as any).name || (c as any).nome), ...usedInScales.map(e => e.empresa).filter(Boolean)]);
         return Array.from(nomesUnicos).map(nome => ({ name: nome }));
     }
 
     @Post('companies')
-    async criarEmpresa(@Body() data: any) {
-        return await this.prisma.company.create({ data: data as any });
-    }
+    async criarEmpresa(@Body() data: any) { return await this.prisma.company.create({ data: data as any }); }
 
     @Delete('companies/:name')
     async deletarEmpresa(@Param('name') name: string) {
-        try {
-            await this.prisma.company.deleteMany({
-                where: { OR: [{ name: name } as any, { nome: name } as any] } as any
-            });
-        } catch (e) {}
+        try { await this.prisma.company.deleteMany({ where: { OR: [{ name: name } as any, { nome: name } as any] } as any }); } catch (e) {}
         return { ok: true };
     }
 
@@ -146,21 +125,14 @@ export class AutomationController {
     async listar(@Param('tipo') tipo: string, @Query('empresa') empresa: string) {
         if (tipo === 'escalas') {
             if (!empresa) return [];
-            return await this.prisma.escalaMapping.findMany({
-                where: { empresa: empresa } as any,
-                orderBy: { origem: 'asc' }
-            });
+            return await this.prisma.escalaMapping.findMany({ where: { empresa: empresa } as any, orderBy: { origem: 'asc' } });
         }
-        if (tipo === 'vinculos') {
-            return await this.prisma.vinculoMapping.findMany({ orderBy: { sigla: 'asc' } });
-        }
+        if (tipo === 'vinculos') return await this.prisma.vinculoMapping.findMany({ orderBy: { sigla: 'asc' } });
     }
 
     @Post(':tipo')
     async criar(@Param('tipo') tipo: string, @Body() data: any) {
-        if (tipo === 'escalas') {
-            return await this.prisma.escalaMapping.create({ data: { ...data, ativa: true } });
-        }
+        if (tipo === 'escalas') return await this.prisma.escalaMapping.create({ data: { ...data, ativa: true } });
         if (tipo === 'vinculos') {
             const { empresa, ...dataClean } = data;
             return await this.prisma.vinculoMapping.create({ data: { ...dataClean, ativa: true } });
