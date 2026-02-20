@@ -3,13 +3,13 @@ import axios from 'axios';
 
 @Injectable()
 export class OmieService {
-  // IMPORTANTE: Suas credenciais originais (Se precisar mudar, mude aqui)
+  // Credenciais de acesso à API Omie
   private readonly APP_KEY = process.env.OMIE_APP_KEY || '3335198031354';
   private readonly APP_SECRET = process.env.OMIE_APP_SECRET || 'b73715c61d5ab05c48600d3dffcfbfd4';
   private readonly OMIE_API_URL = 'https://app.omie.com.br/api/v1/';
 
   /**
-   * Lista TODOS os clientes cadastrados na Omie manipulando a paginação.
+   * Lista todos os clientes/fornecedores cadastrados para bater o CPF/CNPJ
    */
   async listarTodosClientes(): Promise<any[]> {
     let pagina = 1;
@@ -32,16 +32,13 @@ export class OmieService {
 
       try {
         const response = await axios.post(`${this.OMIE_API_URL}geral/clientes/`, payload);
-        const data = response.data;
-
-        if (data && data.clientes_cadastro) {
-          todosClientes.push(...data.clientes_cadastro);
+        if (response.data && response.data.clientes_cadastro) {
+          todosClientes.push(...response.data.clientes_cadastro);
         }
-
-        totalPaginas = data.total_de_paginas || 1;
+        totalPaginas = response.data.total_de_paginas || 1;
         pagina++;
       } catch (error) {
-        console.error(`Erro ao buscar página ${pagina} de clientes na Omie:`, error.response?.data?.faultstring || error.message);
+        console.error(`Erro ao buscar página ${pagina} de clientes:`, error.message);
         break;
       }
     } while (pagina <= totalPaginas);
@@ -50,7 +47,7 @@ export class OmieService {
   }
 
   /**
-   * Envia o título financeiro (Conta a Pagar) para a Omie.
+   * Envia o título financeiro para a Omie (IncluirContaPagar)
    */
   async incluirContaIndividual(payload: any): Promise<any> {
     const body = {
@@ -64,20 +61,23 @@ export class OmieService {
       const response = await axios.post(`${this.OMIE_API_URL}financas/contapagar/`, body);
       return response.data;
     } catch (error) {
-      console.error("Erro detalhado Omie:", error.response?.data);
+      console.error("❌ Erro na integração com Omie:", error.response?.data || error.message);
       throw new Error(error.response?.data?.faultstring || "Erro ao integrar com Omie");
     }
   }
 
   // =========================================================
-  // 🚀 NOVO: CRIAÇÃO AUTOMÁTICA DE PROJETOS NA OMIE
+  // 🚀 CRIAÇÃO DINÂMICA DE PROJETOS (COLUNA H)
   // =========================================================
 
   /**
-   * Cria um novo projeto na Omie caso ele não exista e retorna o ID (nCodProjeto) gerado.
+   * Tenta incluir um projeto novo na Omie e retorna o código gerado.
+   * Se o projeto já existir ou der erro, retorna 0 para não travar o processo.
    */
   async incluirProjeto(nomeProjeto: string): Promise<number> {
     if (!nomeProjeto || nomeProjeto.trim() === '') return 0;
+
+    const nomeLimpo = nomeProjeto.trim();
 
     try {
       const data = {
@@ -85,23 +85,26 @@ export class OmieService {
         app_key: this.APP_KEY,
         app_secret: this.APP_SECRET,
         param: [{
-          nome: nomeProjeto.trim(),
+          nome: nomeLimpo,
           inativo: "N"
         }]
       };
 
+      // Endpoint oficial de Projetos da Omie
       const response = await axios.post(`${this.OMIE_API_URL}geral/projetos/`, data);
 
-      // A Omie retorna o ID do projeto dentro de "codigo" (ex: 2362056464)
+      // Retorna o nCodProjeto gerado pela Omie
       if (response.data && response.data.codigo) {
+        console.log(`✨ Projeto '${nomeLimpo}' cadastrado com sucesso! ID: ${response.data.codigo}`);
         return response.data.codigo;
       }
 
       return 0;
     } catch (error) {
-      console.error(`❌ Erro ao criar projeto "${nomeProjeto}" na Omie:`, error.response?.data?.faultstring || error.message);
-
-      // Se der erro (ex: projeto já existe mas com nome diferente), retorna 0 para o boleto não falhar
+      // Se a Omie retornar erro de que o projeto já existe, ela não deixa criar.
+      // Nesse caso o log ajuda a identificar, mas retornamos 0 para seguir o fluxo.
+      const msgErro = error.response?.data?.faultstring || error.message;
+      console.warn(`⚠️ Aviso ao criar projeto "${nomeLimpo}": ${msgErro}`);
       return 0;
     }
   }

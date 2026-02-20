@@ -29,24 +29,15 @@ export const MAPA_CATEGORIAS: Record<string, string> = {
     'ALUGUEL': '2.04.01',
     'ENERGIA ELÉTRICA': '2.04.04',
     'TELEFONIA': '2.04.05',
-    '200801 - PROSPECÇÃO DE CLIENTES': '2.11.99',
-    '200802-ATESTADO DE CAPACIDADE TÉCNICA': '2.11.98',
-    'COMPRA DE SERVIÇOS': '2.01.04',
 };
 
 export function obterCodigoCategoria(nome: string): string {
     const busca = String(nome || '').toUpperCase().trim();
-    const codigoEncontrado = MAPA_CATEGORIAS[busca];
-
-    if (codigoEncontrado && codigoEncontrado !== 'CODIGO_AQUI') {
-        return codigoEncontrado;
-    }
-
-    return '2.03.94';
+    return MAPA_CATEGORIAS[busca] || '2.03.94';
 }
 
 // ==========================================
-// 3. MAPA DE PROJETOS (CIDADES / CONTRATOS - COLUNA H)
+// 3. MAPA DE PROJETOS (TODOS OS 126 REGISTROS)
 // ==========================================
 export const MAPA_PROJETOS: Record<string, number> = {
     'PM PINDA- ESPECIALIDADES': 1826266885,
@@ -174,36 +165,17 @@ export const MAPA_PROJETOS: Record<string, number> = {
     '2083-CISMETRO-PARAIBUNA': 2362020780,
     '2084-CEJAM ORTOPEDIA': 2362056424,
     '2085-SÃO BENTO DO SAPUCAÍ-ESPECIALIDADES': 2362056440,
-    '2086-SÃO JOSÉ DOS CAMPOS-CREDENCIAMENTO 01-2025': 2362056464,
-
-    // Apelidos para correções do Excel
-    '2086-S.1J.CAMPOS-CREDENCIAMENTO 01-2025': 2362056464,
-    '2026-LAGOINHA-ESPECIALIDADES': 2017701306,
-    '2028-MONTEIRO LOBATO-PA': 2182780979,
-    '2025-SAP-CARDIOLOGISTA': 2204403527,
-    '2020-SJC-CREDENCIAMETO 02/2023': 1826268063,
-    'SHM - JACAREÍ CS': 1893138960,
-    'SHM - SAP ESPECIALIDADES': 1930901934,
-    'VITALLIS - SAP NEUROPED': 1994898492,
-    'VITALLIS - SARAPUÍ PA': 1994898492
+    '2086-SÃO JOSÉ DOS CAMPOS-CREDENCIAMENTO 01-2025': 2362056464
 };
 
-/**
- * Busca o ID do Projeto na Omie com "Inteligência" (Fuzzy Search):
- * Ignora espaços, traços e diferenças minúsculas/maiúsculas.
- */
 export function obterIdProjeto(nome: string): number {
     if (!nome) return 0;
-
     const busca = String(nome).toLowerCase().replace(/[^a-z0-9]/g, '');
-
     for (const [key, value] of Object.entries(MAPA_PROJETOS)) {
         const keyClean = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-
         if (busca === keyClean || keyClean.includes(busca) || busca.includes(keyClean)) {
             return value;
         }
     }
-
-    return 0; // Retorna 0 (vazio) só se for impossível achar
+    return 0;
 }
