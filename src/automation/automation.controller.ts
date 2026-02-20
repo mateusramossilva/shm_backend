@@ -39,7 +39,7 @@ export class AutomationController {
         }
     }
 
-    // 2. PREPARAÇÃO PARA API OMIE (AGORA COM CRIAÇÃO AUTOMÁTICA DE PROJETOS)
+    // 2. PREPARAÇÃO PARA API OMIE
     @Post('preparar-dados')
     async prepararDados(@Body() body: { contas: any[] }) {
         const todosClientes = await this.omieService.listarTodosClientes();
@@ -52,7 +52,7 @@ export class AutomationController {
 
         const prontos = [], ignorados = [];
 
-        // Substituído forEach por loop for tradicional para usar await (assíncrono)
+        // Substituído forEach por loop for tradicional para suportar await, caso a Omie crie projetos
         for (let index = 0; index < body.contas.length; index++) {
             const conta = body.contas[index];
 
@@ -63,36 +63,41 @@ export class AutomationController {
 
             if (!idOmie) {
                 ignorados.push({ nome: conta.medico_nome, cpf: cpf });
-                continue; // Passa pro próximo da lista
+                continue;
             }
 
-            const nomeDoProjetoNoExcel = conta.projeto || '';
+            // 1. Busca o ID do Projeto (Coluna H) e formata para string limpa
+            const nomeDoProjetoNoExcel = String(conta.projeto || '').trim();
 
-            // 1º Passo: Tenta achar no nosso mapa interno rápido
+            // 2. Tenta achar no mapa interno (omie-mapas.ts)
             let idProjeto = obterIdProjeto(nomeDoProjetoNoExcel);
 
-            // 2º Passo: Se não achou e não estiver em branco, MANDA A OMIE CRIAR NA HORA!
-            if (idProjeto === 0 && nomeDoProjetoNoExcel.trim() !== '') {
-                console.log(`[CRIANDO NOVO PROJETO]: '${nomeDoProjetoNoExcel}' não existe. Criando na Omie agora...`);
+            // LOG DE DIAGNÓSTICO MUITO IMPORTANTE (Veja isso no painel do Railway)
+            console.log(`[PROJETO] Excel enviou: '${nomeDoProjetoNoExcel}' | ID encontrado: ${idProjeto}`);
+
+            // 3. Se não achou (retornou 0) e não estiver em branco, aciona a Omie para CRIAR o projeto na hora
+            if (idProjeto === 0 && nomeDoProjetoNoExcel !== '') {
+                console.log(`⏳ Criando projeto inexistente na Omie: '${nomeDoProjetoNoExcel}'...`);
                 idProjeto = await this.omieService.incluirProjeto(nomeDoProjetoNoExcel);
-                console.log(`[SUCESSO]: Projeto '${nomeDoProjetoNoExcel}' criado com ID: ${idProjeto}`);
+                console.log(`✅ Novo projeto criado na Omie! ID: ${idProjeto}`);
             }
 
-            // Monta o payload exato
+            // 4. Monta o payload conforme JSON oficial da Omie (ListarContasPagar)
             const payload: any = {
                 codigo_cliente_fornecedor: idOmie,
                 data_vencimento: this.formatarData(conta.data_vencimento),
                 valor_documento: Number(conta.valor),
                 codigo_categoria: obterCodigoCategoria(conta.categoria),
                 id_conta_corrente: obterIdBanco(conta.banco),
-                observacao: "",
+                observacao: "", // Em branco conforme você pediu
                 data_previsao: this.formatarData(conta.data_vencimento),
                 codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
             };
 
-            // Injeta o projeto na raiz
-            if (idProjeto && idProjeto !== 0) {
-                payload.codigo_projeto = idProjeto;
+            // INJEÇÃO DA TAG OFICIAL
+            // Apenas injeta se for um número válido maior que 0
+            if (idProjeto && idProjeto > 0) {
+                payload.codigo_projeto = Number(idProjeto);
             }
 
             prontos.push({
