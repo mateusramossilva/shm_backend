@@ -8,8 +8,8 @@ import { Response } from 'express';
 import { OmieProcessService } from './omie-process.service';
 import { OmieService } from './omie.service';
 import { PrismaService } from '../prisma/prisma.service';
-// Importando os mapas originais (NÃO REMOVER)
-import { obterIdBanco, obterCodigoCategoria } from './omie-mapas';
+// Importando os mapas originais + a nova função obterIdProjeto
+import { obterIdBanco, obterCodigoCategoria, obterIdProjeto } from './omie-mapas';
 
 @Controller('automation')
 export class AutomationController {
@@ -69,13 +69,14 @@ export class AutomationController {
                 return;
             }
 
-            // Payload original restaurado
+            // Payload atualizado para enviar o Projeto
             prontos.push({
                 omiePayload: {
                     codigo_cliente_fornecedor: idOmie,
                     data_vencimento: this.formatarData(conta.data_vencimento),
                     valor_documento: Number(conta.valor),
                     codigo_categoria: obterCodigoCategoria(conta.categoria),
+                    codigo_projeto: obterIdProjeto(conta.projeto), // AQUI: Envia o ID do Projeto
                     id_conta_corrente: obterIdBanco(conta.banco),
                     observacao: `Médico: ${conta.medico_nome}`,
                     data_previsao: this.formatarData(conta.data_vencimento),
