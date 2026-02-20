@@ -1,59 +1,191 @@
-import { Injectable } from '@nestjs/common';
+import {
+    Controller, Post, Get, Patch, Delete, Body, Param, Query,
+    UploadedFiles, UseInterceptors, Res, BadRequestException
+} from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
+// Importando os serviços originais
+import { OmieProcessService } from './omie-process.service';
+import { OmieService } from './omie.service';
 import { PrismaService } from '../prisma/prisma.service';
-import * as XLSX from 'xlsx';
+// Importando mapas
+import { obterIdBanco, obterCodigoCategoria, obterIdProjeto } from './omie-mapas';
 
-@Injectable()
-export class OmieProcessService {
-    constructor(private prisma: PrismaService) {}
+@Controller('automation')
+export class AutomationController {
+    constructor(
+        private readonly omieProcessService: OmieProcessService,
+        private readonly omieService: OmieService,
+        private readonly prisma: PrismaService
+    ) {}
 
-    async executarInjecao(templateBuffer: Buffer, dataBuffer: Buffer, datasJson: string): Promise<Buffer> {
-        const wbTemplate = XLSX.read(templateBuffer, { type: 'buffer', cellDates: true });
-        const wbData = XLSX.read(dataBuffer, { type: 'buffer' });
-        const ws = wbTemplate.Sheets[wbTemplate.SheetNames[0]];
-        const df_dados: any[][] = XLSX.utils.sheet_to_json(wbData.Sheets[wbData.SheetNames[0]], { header: 1 });
-        const datas = datasJson ? JSON.parse(datasJson) : {};
-
-        // BUSCA APENAS O QUE ESTÁ ATIVO PARA O EXCEL
-        const [escalas, vinculos] = await Promise.all([
-            this.prisma.escalaMapping.findMany({ where: { ativa: true } }),
-            this.prisma.vinculoMapping.findMany({ where: { ativa: true } })
-        ]);
-
-        let linha = 6;
-        for (let i = 9; i < df_dados.length - 1; i += 2) {
-            const row_prof = df_dados[i];
-            const row_val = df_dados[i + 1];
-            if (!row_prof || !row_prof[0]) continue;
-
-            const val_raw = String(row_val ? row_val[16] : "0");
-            const val_limpo = val_raw.replace(/[R\$\.\s]/g, '').replace(',', '.');
-            const val_final = parseFloat(val_limpo) || 0;
-
-            // Mapeamento de Vínculo (Sigla -> Nome)
-            const mapaVinculo = vinculos.find(v => v.sigla === String(row_prof[13]));
-            const vinculoDest = mapaVinculo ? mapaVinculo.nome : String(row_prof[13]);
-
-            // Mapeamento de Escala (Origem -> Destino)
-            const mapaEscala = escalas.find(e => e.origem === String(row_prof[12]));
-            const unidadeDest = mapaEscala ? mapaEscala.destino : String(row_prof[12]);
-
-            // Injeção no Template Omie
-            XLSX.utils.sheet_add_aoa(ws, [[row_prof[3]]], { origin: `C${linha}` });
-            XLSX.utils.sheet_add_aoa(ws, [[vinculoDest]], { origin: `D${linha}` });
-            XLSX.utils.sheet_add_aoa(ws, [["Banco do Brasil"]], { origin: `E${linha}` });
-            XLSX.utils.sheet_add_aoa(ws, [[val_final]], { origin: `F${linha}` });
-            XLSX.utils.sheet_add_aoa(ws, [[unidadeDest]], { origin: `H${linha}` });
-
-            const fmt = (d: string) => d ? [new Date(d + "T12:00:00")] : [null];
-            XLSX.utils.sheet_add_aoa(ws, [fmt(datas.emissao)], { origin: `I${linha}` });
-            XLSX.utils.sheet_add_aoa(ws, [fmt(datas.registro)], { origin: `J${linha}` });
-            XLSX.utils.sheet_add_aoa(ws, [fmt(datas.vencimento)], { origin: `K${linha}` });
-            XLSX.utils.sheet_add_aoa(ws, [fmt(datas.previsao)], { origin: `L${linha}` });
-            XLSX.utils.sheet_add_aoa(ws, [fmt(datas.pagamento)], { origin: `M${linha}` });
-
-            XLSX.utils.sheet_add_aoa(ws, [[val_final]], { origin: `N${linha}` });
-            linha++;
+    // 1. GERAÇÃO DO EXCEL
+    @Post('processar')
+    @UseInterceptors(FileFieldsInterceptor([{ name: 'omie', maxCount: 1 }, { name: 'doctor', maxCount: 1 }]))
+    async processar(@UploadedFiles() files, @Body() body, @Res() res: Response) {
+        try {
+            const buffer = await this.omieProcessService.executarInjecao(
+                files.omie[0].buffer,
+                files.doctor[0].buffer,
+                body.datas
+            );
+            res.set({
+                'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'Content-Disposition': 'attachment; filename=shm_final.xlsx'
+            });
+            res.end(buffer);
+        } catch (e) {
+            res.status(500).json({ message: e.message });
         }
-        return Buffer.from(XLSX.write(wbTemplate, { type: 'buffer', bookType: 'xlsx' }));
+    }
+
+    // 2. PREPARAÇÃO PARA API OMIE
+    @Post('preparar-dados')
+    async prepararDados(@Body() body: { contas: any[] }) {
+        const todosClientes = await this.omieService.listarTodosClientes();
+        const mapaClientes = new Map();
+
+        todosClientes.forEach(cli => {
+            const cpf = String(cli.cnpj_cpf || '').replace(/\D/g, '');
+            if (cpf) mapaClientes.set(cpf, cli.codigo_cliente_omie);
+        });
+
+        const prontos = [], ignorados = [];
+
+        // Substituído forEach por loop for tradicional para suportar await, caso a Omie crie projetos
+        for (let index = 0; index < body.contas.length; index++) {
+            const conta = body.contas[index];
+
+            // ====================================================================
+            // 🔎 RAIO-X PARA DESCOBRIR O QUE O SITE ESTÁ ENVIANDO
+            // Vá no painel do Railway e veja o que vai imprimir nesta linha:
+            // ====================================================================
+            console.log(`🔎 [DADOS COMPLETOS ENVIADOS PELO SITE PARA O MÉDICO]:`, conta);
+
+            let cpf = String(conta.cod_cliente || '').replace(/\D/g, '');
+            if (cpf.length > 0 && cpf.length < 11) cpf = cpf.padStart(11, '0');
+
+            const idOmie = mapaClientes.get(cpf);
+
+            if (!idOmie) {
+                ignorados.push({ nome: conta.medico_nome, cpf: cpf });
+                continue;
+            }
+
+            // 1. Busca o ID do Projeto (Coluna H). Se o site não enviar como "projeto", ele ficará vazio
+            const nomeDoProjetoNoExcel = String(conta.projeto || '').trim();
+
+            // 2. Tenta achar no mapa interno (omie-mapas.ts)
+            let idProjeto = obterIdProjeto(nomeDoProjetoNoExcel);
+
+            // 3. Se não achou (retornou 0) e não estiver em branco, aciona a Omie para CRIAR o projeto na hora
+            if (idProjeto === 0 && nomeDoProjetoNoExcel !== '') {
+                console.log(`⏳ Criando projeto inexistente na Omie: '${nomeDoProjetoNoExcel}'...`);
+                idProjeto = await this.omieService.incluirProjeto(nomeDoProjetoNoExcel);
+                console.log(`✅ Novo projeto criado na Omie! ID: ${idProjeto}`);
+            }
+
+            // 4. Monta o payload conforme JSON oficial da Omie
+            const payload: any = {
+                codigo_cliente_fornecedor: idOmie,
+                data_vencimento: this.formatarData(conta.data_vencimento),
+                valor_documento: Number(conta.valor),
+                codigo_categoria: obterCodigoCategoria(conta.categoria),
+                id_conta_corrente: obterIdBanco(conta.banco),
+                observacao: "",
+                data_previsao: this.formatarData(conta.data_vencimento),
+                codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
+            };
+
+            // INJEÇÃO DA TAG OFICIAL
+            // Apenas injeta se for um número válido maior que 0
+            if (idProjeto && idProjeto > 0) {
+                payload.codigo_projeto = Number(idProjeto);
+            }
+
+            prontos.push({
+                omiePayload: payload,
+                medico_nome: conta.medico_nome,
+                cpf: cpf
+            });
+        }
+
+        return { prontos, ignorados };
+    }
+
+    @Post('incluir-individual')
+    async incluir(@Body() data: any) {
+        try {
+            return await this.omieService.incluirContaIndividual(data.omiePayload);
+        } catch (e: any) {
+            throw new BadRequestException(e.message);
+        }
+    }
+
+    // ==================================================================
+    // 🚀 ÁREA 2: GESTÃO DE ESCALAS/VÍNCULOS
+    // ==================================================================
+
+    @Get('companies')
+    async listarEmpresas() {
+        const registered = await this.prisma.company.findMany({ orderBy: { id: 'asc' } as any });
+        const usedInScales = await this.prisma.escalaMapping.findMany({ select: { empresa: true }, distinct: ['empresa'] as any });
+        const nomesUnicos = new Set([...registered.map(c => (c as any).name || (c as any).nome), ...usedInScales.map(e => e.empresa).filter(Boolean)]);
+        return Array.from(nomesUnicos).map(nome => ({ name: nome }));
+    }
+
+    @Post('companies')
+    async criarEmpresa(@Body() data: any) { return await this.prisma.company.create({ data: data as any }); }
+
+    @Delete('companies/:name')
+    async deletarEmpresa(@Param('name') name: string) {
+        try { await this.prisma.company.deleteMany({ where: { OR: [{ name: name } as any, { nome: name } as any] } as any }); } catch (e) {}
+        return { ok: true };
+    }
+
+    @Get(':tipo')
+    async listar(@Param('tipo') tipo: string, @Query('empresa') empresa: string) {
+        if (tipo === 'escalas') {
+            if (!empresa) return [];
+            return await this.prisma.escalaMapping.findMany({ where: { empresa: empresa } as any, orderBy: { origem: 'asc' } });
+        }
+        if (tipo === 'vinculos') return await this.prisma.vinculoMapping.findMany({ orderBy: { sigla: 'asc' } });
+    }
+
+    @Post(':tipo')
+    async criar(@Param('tipo') tipo: string, @Body() data: any) {
+        if (tipo === 'escalas') return await this.prisma.escalaMapping.create({ data: { ...data, ativa: true } });
+        if (tipo === 'vinculos') {
+            const { empresa, ...dataClean } = data;
+            return await this.prisma.vinculoMapping.create({ data: { ...dataClean, ativa: true } });
+        }
+    }
+
+    @Patch('toggle/:tipo/:id')
+    async toggle(@Param('tipo') tipo: string, @Param('id') id: string, @Body() body: { ativa: boolean }) {
+        if (tipo === 'escala') return await this.prisma.escalaMapping.update({ where: { id }, data: { ativa: body.ativa } });
+        if (tipo === 'vinculo') return await this.prisma.vinculoMapping.update({ where: { id }, data: { ativa: body.ativa } });
+    }
+
+    @Patch('update/:tipo/:id')
+    async update(@Param('tipo') tipo: string, @Param('id') id: string, @Body() data: any) {
+        const { id: _, ...updateData } = data;
+        if (tipo === 'escala') return await this.prisma.escalaMapping.update({ where: { id }, data: updateData });
+        if (tipo === 'vinculo') {
+            const { empresa, ...finalData } = updateData;
+            return await this.prisma.vinculoMapping.update({ where: { id }, data: finalData });
+        }
+    }
+
+    @Delete(':tipo/:id')
+    async deletar(@Param('tipo') tipo: string, @Param('id') id: string) {
+        if (tipo === 'escalas') return await this.prisma.escalaMapping.delete({ where: { id } });
+        if (tipo === 'vinculos') return await this.prisma.vinculoMapping.delete({ where: { id } });
+    }
+
+    private formatarData(d: string) {
+        if (!d || d.includes('/')) return d;
+        const [ano, mes, dia] = d.split('-');
+        return `${dia}/${mes}/${ano}`;
     }
 }
