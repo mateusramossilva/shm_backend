@@ -82,18 +82,9 @@ export class AutomationController {
                 codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
             };
 
-            // 3. Se existir um projeto válido, injeta no array de distribuição da Omie
+            // 3. Injeta o Projeto direto na raiz, do jeito simples que a Omie exige!
             if (idProjeto !== 0) {
-                payload.distribuicao = {
-                    projetos: [
-                        {
-                            cCodProjetoInt: "", // Deixa vazio, pois já estamos usando o ID real abaixo
-                            nCodProjeto: idProjeto,
-                            nValorFixo: Number(conta.valor),
-                            nValrPercentual: 100 // 100% do valor do boleto vai para este projeto
-                        }
-                    ]
-                };
+                payload.codigo_projeto = idProjeto;
             }
 
             prontos.push({
