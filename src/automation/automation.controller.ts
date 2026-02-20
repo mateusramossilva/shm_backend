@@ -56,6 +56,12 @@ export class AutomationController {
         for (let index = 0; index < body.contas.length; index++) {
             const conta = body.contas[index];
 
+            // ====================================================================
+            // 🔎 RAIO-X PARA DESCOBRIR O QUE O SITE ESTÁ ENVIANDO
+            // Vá no painel do Railway e veja o que vai imprimir nesta linha:
+            // ====================================================================
+            console.log(`🔎 [DADOS COMPLETOS ENVIADOS PELO SITE PARA O MÉDICO]:`, conta);
+
             let cpf = String(conta.cod_cliente || '').replace(/\D/g, '');
             if (cpf.length > 0 && cpf.length < 11) cpf = cpf.padStart(11, '0');
 
@@ -66,14 +72,11 @@ export class AutomationController {
                 continue;
             }
 
-            // 1. Busca o ID do Projeto (Coluna H) e formata para string limpa
+            // 1. Busca o ID do Projeto (Coluna H). Se o site não enviar como "projeto", ele ficará vazio
             const nomeDoProjetoNoExcel = String(conta.projeto || '').trim();
 
             // 2. Tenta achar no mapa interno (omie-mapas.ts)
             let idProjeto = obterIdProjeto(nomeDoProjetoNoExcel);
-
-            // LOG DE DIAGNÓSTICO MUITO IMPORTANTE (Veja isso no painel do Railway)
-            console.log(`[PROJETO] Excel enviou: '${nomeDoProjetoNoExcel}' | ID encontrado: ${idProjeto}`);
 
             // 3. Se não achou (retornou 0) e não estiver em branco, aciona a Omie para CRIAR o projeto na hora
             if (idProjeto === 0 && nomeDoProjetoNoExcel !== '') {
@@ -82,14 +85,14 @@ export class AutomationController {
                 console.log(`✅ Novo projeto criado na Omie! ID: ${idProjeto}`);
             }
 
-            // 4. Monta o payload conforme JSON oficial da Omie (ListarContasPagar)
+            // 4. Monta o payload conforme JSON oficial da Omie
             const payload: any = {
                 codigo_cliente_fornecedor: idOmie,
                 data_vencimento: this.formatarData(conta.data_vencimento),
                 valor_documento: Number(conta.valor),
                 codigo_categoria: obterCodigoCategoria(conta.categoria),
                 id_conta_corrente: obterIdBanco(conta.banco),
-                observacao: "", // Em branco conforme você pediu
+                observacao: "",
                 data_previsao: this.formatarData(conta.data_vencimento),
                 codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
             };
