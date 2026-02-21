@@ -4,7 +4,7 @@ import {
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
-// Importando os serviços originais
+// Importando os serviços
 import { OmieProcessService } from './omie-process.service';
 import { OmieService } from './omie.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -52,15 +52,8 @@ export class AutomationController {
 
         const prontos = [], ignorados = [];
 
-        // Substituído forEach por loop for tradicional para suportar await, caso a Omie crie projetos
         for (let index = 0; index < body.contas.length; index++) {
             const conta = body.contas[index];
-
-            // ====================================================================
-            // 🔎 RAIO-X PARA DESCOBRIR O QUE O SITE ESTÁ ENVIANDO
-            // Vá no painel do Railway e veja o que vai imprimir nesta linha:
-            // ====================================================================
-            console.log(`🔎 [DADOS COMPLETOS ENVIADOS PELO SITE PARA O MÉDICO]:`, conta);
 
             let cpf = String(conta.cod_cliente || '').replace(/\D/g, '');
             if (cpf.length > 0 && cpf.length < 11) cpf = cpf.padStart(11, '0');
@@ -68,44 +61,50 @@ export class AutomationController {
             const idOmie = mapaClientes.get(cpf);
 
             if (!idOmie) {
-                ignorados.push({ nome: conta.medico_nome, cpf: cpf });
+                ignorados.push({ nome: "CPF não encontrado na Omie", cpf: cpf });
                 continue;
             }
 
-            // 1. Busca o ID do Projeto (Coluna H). Se o site não enviar como "projeto", ele ficará vazio
-            const nomeDoProjetoNoExcel = String(conta.projeto || '').trim();
+            // ====================================================================
+            // LÓGICA DE MAPEAMENTO CORRETA (Baseada na leitura do seu site)
+            // ====================================================================
 
-            // 2. Tenta achar no mapa interno (omie-mapas.ts)
-            let idProjeto = obterIdProjeto(nomeDoProjetoNoExcel);
+            // O site envia a Categoria (Col D) dentro de conta.medico_nome
+            const textoCategoriaExcel = String(conta.medico_nome || '').trim();
 
-            // 3. Se não achou (retornou 0) e não estiver em branco, aciona a Omie para CRIAR o projeto na hora
-            if (idProjeto === 0 && nomeDoProjetoNoExcel !== '') {
-                console.log(`⏳ Criando projeto inexistente na Omie: '${nomeDoProjetoNoExcel}'...`);
-                idProjeto = await this.omieService.incluirProjeto(nomeDoProjetoNoExcel);
-                console.log(`✅ Novo projeto criado na Omie! ID: ${idProjeto}`);
+            // O site envia o Projeto (Col H) dentro de conta.categoria
+            const textoProjetoExcel = String(conta.categoria || '').trim();
+
+            // Pega os IDs nos mapas
+            const codigoCategoriaFinal = obterCodigoCategoria(textoCategoriaExcel);
+            let idProjetoFinal = obterIdProjeto(textoProjetoExcel);
+
+            // Se o projeto for novo, cria na Omie
+            if (idProjetoFinal === 0 && textoProjetoExcel !== '') {
+                console.log(`[AUTOMAÇÃO] Criando novo projeto na Omie: ${textoProjetoExcel}`);
+                idProjetoFinal = await this.omieService.incluirProjeto(textoProjetoExcel);
             }
 
-            // 4. Monta o payload conforme JSON oficial da Omie
+            // Monta o envio pra Omie
             const payload: any = {
                 codigo_cliente_fornecedor: idOmie,
                 data_vencimento: this.formatarData(conta.data_vencimento),
                 valor_documento: Number(conta.valor),
-                codigo_categoria: obterCodigoCategoria(conta.categoria),
+                codigo_categoria: codigoCategoriaFinal,
                 id_conta_corrente: obterIdBanco(conta.banco),
                 observacao: "",
                 data_previsao: this.formatarData(conta.data_vencimento),
                 codigo_lancamento_integracao: `SHM-${Date.now()}-${index}`
             };
 
-            // INJEÇÃO DA TAG OFICIAL
-            // Apenas injeta se for um número válido maior que 0
-            if (idProjeto && idProjeto > 0) {
-                payload.codigo_projeto = Number(idProjeto);
+            // Injeta o ID do projeto na raiz
+            if (idProjetoFinal > 0) {
+                payload.codigo_projeto = idProjetoFinal;
             }
 
             prontos.push({
                 omiePayload: payload,
-                medico_nome: conta.medico_nome,
+                medico_nome: textoProjetoExcel, // Mantemos isso aqui só pro seu console não bugar
                 cpf: cpf
             });
         }
@@ -123,7 +122,7 @@ export class AutomationController {
     }
 
     // ==================================================================
-    // 🚀 ÁREA 2: GESTÃO DE ESCALAS/VÍNCULOS
+    // ÁREA 2: GESTÃO DE ESCALAS/VÍNCULOS
     // ==================================================================
 
     @Get('companies')
@@ -155,10 +154,7 @@ export class AutomationController {
     @Post(':tipo')
     async criar(@Param('tipo') tipo: string, @Body() data: any) {
         if (tipo === 'escalas') return await this.prisma.escalaMapping.create({ data: { ...data, ativa: true } });
-        if (tipo === 'vinculos') {
-            const { empresa, ...dataClean } = data;
-            return await this.prisma.vinculoMapping.create({ data: { ...dataClean, ativa: true } });
-        }
+        if (tipo === 'vinculos') { const { empresa, ...dataClean } = data; return await this.prisma.vinculoMapping.create({ data: { ...dataClean, ativa: true } }); }
     }
 
     @Patch('toggle/:tipo/:id')
@@ -171,10 +167,7 @@ export class AutomationController {
     async update(@Param('tipo') tipo: string, @Param('id') id: string, @Body() data: any) {
         const { id: _, ...updateData } = data;
         if (tipo === 'escala') return await this.prisma.escalaMapping.update({ where: { id }, data: updateData });
-        if (tipo === 'vinculo') {
-            const { empresa, ...finalData } = updateData;
-            return await this.prisma.vinculoMapping.update({ where: { id }, data: finalData });
-        }
+        if (tipo === 'vinculo') { const { empresa, ...finalData } = updateData; return await this.prisma.vinculoMapping.update({ where: { id }, data: finalData }); }
     }
 
     @Delete(':tipo/:id')
