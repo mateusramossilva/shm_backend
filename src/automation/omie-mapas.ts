@@ -168,14 +168,37 @@ export const MAPA_PROJETOS: Record<string, number> = {
     '2086-SÃO JOSÉ DOS CAMPOS-CREDENCIAMENTO 01-2025': 2362056464
 };
 
+/**
+ * Busca o ID do Projeto com procura "Fuzzy" aprimorada
+ * Prioriza o match exato. Se não encontrar, tenta procurar nomes parciais,
+ * mas testa sempre os nomes mais compridos primeiro para evitar falsos positivos.
+ */
 export function obterIdProjeto(nome: string): number {
     if (!nome) return 0;
+
+    // Limpa a string de procura (remove espaços, traços, etc)
     const busca = String(nome).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // 1º PASSO: Tentar o Match Exato (Mais Seguro)
     for (const [key, value] of Object.entries(MAPA_PROJETOS)) {
         const keyClean = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (busca === keyClean || keyClean.includes(busca) || busca.includes(keyClean)) {
+        if (busca === keyClean) {
             return value;
         }
     }
-    return 0;
+
+    // 2º PASSO: Tentar por aproximação (ordenando do maior para o menor nome)
+    // Assim evitamos que "2040" seja escolhido no lugar de "2040-Fernandópolis"
+    const chavesOrdenadas = Object.keys(MAPA_PROJETOS).sort((a, b) => b.length - a.length);
+
+    for (const key of chavesOrdenadas) {
+        const keyClean = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        // Testa se o texto do Excel contém a nossa chave, ou se a nossa chave contém o texto do Excel
+        if (keyClean.includes(busca) || busca.includes(keyClean)) {
+            return MAPA_PROJETOS[key];
+        }
+    }
+
+    return 0; // Se não encontrou nada
 }
